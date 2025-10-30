@@ -19,6 +19,7 @@ Use this as a template. Keep the headers and remove all other text. In all, your
 ```{r}
 # load any other packages and read data here
 library(tidyverse)
+library(knitr)
 ```
 
 ## Abstract
@@ -41,9 +42,217 @@ Summarize the methodology of the paper in 1-3 paragraphs. You need not explain t
 
 Summarize your findings here. I've included some subheaders in a way that seems natural to me; you can structure this section however you like.
 
-### Impact of preprocessing and outliers
+### Impact of preprocessing
 
-Tasks 1-2
+**TODO**
+
+
+### Outliers Analysis
+
+Outlier analysis of per-subject counts (\|z\| \> 3) showed that ASD and TD groups had similar medians (both 8.5; Wilcoxon p = 0.82), but TD participants exhibited greater dispersion with higher means, larger maxima, and a heavier right tail. Using Tukey’s 1.5×IQR rule, 9 of 78 TD participants (11.5%) were flagged as outliers compared to 4 of 76 ASD participants (5.3%). Overall, while the central tendency of outlier counts was similar across groups, extreme outlying subjects were more common in the TD group.
+
+```{r}
+#| echo: false
+
+# -------------------
+# Read headers
+# -------------------
+var_names <- read_csv('../data/biomarker-raw.csv',
+                      col_names = FALSE,
+                      n_max = 2,
+                      col_select = -(1:2)) %>%
+  t() %>%
+  as_tibble() %>%
+  rename(name = V1, abbreviation = V2) %>%
+  na.omit()
+
+# -------------------
+# Load data (no trimming); log10 + z-score
+# -------------------
+biomarker_no_trim <- read_csv('../data/biomarker-raw.csv',
+                              skip = 2,
+                              col_select = -2L,
+                              col_names = c('group', 'empty', pull(var_names, abbreviation), 'ados'),
+                              na = c('-', '')
+) %>%
+  filter(!is.na(group)) %>%
+  mutate(across(-c(group, ados),
+                ~ scale(log10(.x))[, 1])) %>%
+  select(group, ados, everything())
+```
+
+**Group summaries.**\
+
+We computed a per-subject outlier count as the number of proteins with \(|z|>3\) after log10 transform and z-scoring. The first table summarizes these counts by group (ASD vs TD), reporting \(N\), mean, median, SD, and range. The second table shows how often subjects exceed selected thresholds (≥10, 25, 50, 100, 200 outliers). Together, these summaries indicate the central tendency (medians) and overall dispersion, while the threshold proportions highlight the prevalence of extreme cases. If medians are similar but one group shows a higher mean, larger SD, and larger maxima with higher proportions above the thresholds, that pattern suggests a heavier right tail (i.e., more subjects with unusually many outliers) in that group.
+
+
+```{r}
+# ------------------
+# Per-subject outlier count (|z| > 3)
+# -------------------
+outlier_counts <- biomarker_no_trim %>%
+  mutate(outlier_n = rowSums(across(-c(group, ados), ~ abs(.x) > 3), na.rm = TRUE)) %>%
+  select(group, ados, outlier_n)
+
+# -------------------
+# Group summary (ASD vs TD)
+# -------------------
+summary_tbl <- outlier_counts %>%
+  group_by(group) %>%
+  summarise(
+    N      = n(),
+    Mean   = mean(outlier_n),
+    Median = median(outlier_n),
+    SD     = sd(outlier_n),
+    Min    = min(outlier_n),
+    Max    = max(outlier_n),
+    .groups = "drop"
+  ) %>%
+  arrange(group) %>%
+  mutate(across(c(Mean, Median, SD), ~ round(.x, 2)))
+
+# -------------------
+# Proportions above thresholds
+# -------------------
+thresholds <- c(10, 25, 50, 100, 200)
+props_tbl <- map_dfr(
+  thresholds,
+  ~ outlier_counts %>%
+    group_by(group) %>%
+    summarise(
+      threshold       = .x,
+      num_at_or_above = sum(outlier_n >= .x),
+      N               = n(),
+      proportion      = num_at_or_above / N,
+      .groups = "drop"
+    )
+) %>%
+  arrange(threshold, group) %>%
+  mutate(proportion = round(proportion, 3))
+
+# Show tables
+kable(summary_tbl,
+            caption = "Per-subject outlier counts (|z| > 3) after log10 transform and z-scoring (no trimming)")
+
+kable(props_tbl,
+            caption = "Proportion of subjects with outlier counts at or above selected thresholds (|z| > 3)")
+```  
+&nbsp;
+
+**Descriptive distributions (histogram & boxplot).**\
+
+The histogram of per-subject outlier counts shows that both ASD and TD groups cluster around similar values, but the TD group has a heavier right tail, with more subjects showing very high counts. The boxplot confirms this: medians are identical across groups, but TD participants show greater spread and more extreme high values. Tukey-flagged outlier participants are visible as red points in the boxplot.
+
+
+```{r}
+#| echo: false
+
+# -------------------
+# Flag subject-level outliers (Tukey rule per group)
+# -------------------
+fences <- outlier_counts %>%
+  group_by(group) %>%
+  summarise(
+    Q1  = quantile(outlier_n, 0.25, na.rm = TRUE),
+    Q3  = quantile(outlier_n, 0.75, na.rm = TRUE),
+    IQR = Q3 - Q1,
+    lower = Q1 - 1.5 * IQR,
+    upper = Q3 + 1.5 * IQR,
+    .groups = "drop"
+  )
+
+outlier_flagged <- outlier_counts %>%
+  left_join(fences, by = "group") %>%
+  mutate(is_outlier = outlier_n < lower | outlier_n > upper)
+
+# -------------------
+# Boxplot with outliers highlighted
+# -------------------
+p_box <- ggplot(outlier_flagged, aes(x = group, y = outlier_n, color = is_outlier)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.7, size = 2) +
+  scale_color_manual(values = c("FALSE" = "gray40", "TRUE" = "red")) +
+  labs(
+    title = "Per-Subject Outlier Counts by Group",
+    x = "Group",
+    y = "Number of Outliers (|z| > 3)",
+    color = "Flagged as outlier participants"
+  ) +
+  theme_minimal()
+
+p_box
+
+# -------------------
+# Histogram by group (faceted)
+# -------------------
+p_hist <- ggplot(outlier_counts, aes(x = outlier_n, fill = group)) +
+  geom_histogram(bins = 30, alpha = 0.6) +
+  facet_wrap(~ group, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Histogram of Per-Subject Outlier Counts",
+    x = "Number of Outliers (|z| > 3)",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p_hist
+```  
+&nbsp;
+
+**Wilcoxon rank-sum test.**\
+The test of group differences in outlier counts showed no evidence of a location shift (W = 3028.5, p = 0.817), consistent with identical medians (8.5).
+
+```{r}
+#| echo: false
+
+# --- Wilcoxon rank-sum (location) ---
+wilcox_res <- wilcox.test(outlier_n ~ group, data = outlier_counts)
+wilcox_tbl <- tibble::tibble(
+  test    = "Wilcoxon rank-sum",
+  W       = unname(wilcox_res$statistic),
+  p_value = wilcox_res$p.value
+)
+knitr::kable(wilcox_tbl, caption = "Wilcoxon rank-sum test comparing per-subject outlier counts (ASD vs TD)")
+
+# --- Flagged subjects per group (Tukey rule) ---
+outlier_totals <- outlier_flagged %>%
+  dplyr::count(group, is_outlier) %>%
+  tidyr::complete(group, is_outlier, fill = list(n = 0)) %>%
+  dplyr::group_by(group) %>%
+  dplyr::mutate(prop = n / sum(n)) %>%
+  dplyr::ungroup()
+
+knitr::kable(outlier_totals,
+             caption = "Flagged outlier participants by group (Tukey 1.5×IQR rule) with proportions")
+
+# --- 2×2 table + chi-square test for flagged proportions ---
+tab <- table(outlier_flagged$group, outlier_flagged$is_outlier)
+chisq_res <- chisq.test(tab)
+
+# format the contingency table for display
+tab_df <- as.data.frame.matrix(tab) %>%
+  tibble::rownames_to_column("Group")
+knitr::kable(tab_df, caption = "2×2 contingency table: flagged (TRUE/FALSE) by group")
+
+chisq_tbl <- tibble::tibble(
+  test    = "Chi-square test of independence",
+  statistic = unname(chisq_res$statistic),
+  df        = unname(chisq_res$parameter),
+  p_value   = chisq_res$p.value
+)
+knitr::kable(chisq_tbl, caption = "Chi-square test comparing flagged proportions across groups")
+```  
+&nbsp;
+
+
+**Overall interpretation.**\
+- Both groups share a similar central tendency (same medians, Wilcoxon not significant).\
+- The TD group shows greater dispersion and heavier tails, including more extreme subjects.\
+- Using Tukey’s rule, a larger proportion of TD participants were classified as outliers compared with ASD.
+
+**Outlier Analysis Conclusion:** While typical participants look similar in ASD and TD, extremely outlying individuals are more common in the TD group.
+
 
 ### Methodological variations
 
