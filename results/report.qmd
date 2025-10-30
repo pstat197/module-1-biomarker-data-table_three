@@ -27,7 +27,11 @@ Write a brief one-paragraph abstract that describes the contents of your write-u
 
 ## Dataset
 
-Write a brief data description, including: how data were obtained; sample characteristics; variables measured; and data preprocessing. This can be largely based on the source paper and should not exceed 1-2 paragraphs.
+A total of 154 pediatric subjects were enrolled in the study, consisting of 76 boys with autism spectrum disorder (ASD; mean age 5.6 years, SD 1.7) and 78 typically developing (TD) boys (mean age 5.7 years, SD 2.0). The ethnic distribution was 73 White/Caucasian, 32 Hispanic/Latino, 17 African American/Black, 5 Asian or Pacific Islander, 23 of multiple or other ethnicities, and 4 not reported. Autism Diagnostic Observation Schedule (ADOS) scores were also collected for all participants.
+
+Serum protein expression was measured using the SOMAscan® assay, which quantified 1,317 proteins in 150 μl serum from 154 participants. An additional 14 blinded duplicate samples (7 ASD, 7 TD) were run for quality control but not included in analyses. In the published study, 192 proteins were removed during quality control, leaving 1,125 for analysis. The dataset used here retains all 1,317 raw protein measurements prior to filtering. These proteins span a broad range of functional classes, including cytokines, growth factors, receptors, and signaling molecules. Protein levels were reported as relative fluorescence units (RFUs), reflecting their relative abundance.
+
+Preprocessing for the present analysis involved three main steps applied to all protein measures: a log10 transform to stabilize variance and reduce skew, z-score standardization (mean 0, SD 1) to place proteins on a comparable scale, and trimming at ±3 SD to cap extreme outliers. After these transformations, the dataset was organized with group and ados leading, followed by the processed protein features, and saved in R binary format (`biomarker_clean`) for downstream statistical analysis.
 
 ## Summary of published analysis
 
