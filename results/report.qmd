@@ -46,7 +46,6 @@ Summarize your findings here. I've included some subheaders in a way that seems 
 
 **TODO**
 
-
 ### Outliers Analysis
 
 Outlier analysis of per-subject counts (\|z\| \> 3) showed that ASD and TD groups had similar medians (both 8.5; Wilcoxon p = 0.82), but TD participants exhibited greater dispersion with higher means, larger maxima, and a heavier right tail. Using Tukey’s 1.5×IQR rule, 9 of 78 TD participants (11.5%) were flagged as outliers compared to 4 of 76 ASD participants (5.3%). Overall, while the central tendency of outlier counts was similar across groups, extreme outlying subjects were more common in the TD group.
@@ -81,10 +80,9 @@ biomarker_no_trim <- read_csv('../data/biomarker-raw.csv',
   select(group, ados, everything())
 ```
 
-**Group summaries.**\
+**Group summaries**\
 
-We computed a per-subject outlier count as the number of proteins with \(|z|>3\) after log10 transform and z-scoring. The first table summarizes these counts by group (ASD vs TD), reporting \(N\), mean, median, SD, and range. The second table shows how often subjects exceed selected thresholds (≥10, 25, 50, 100, 200 outliers). Together, these summaries indicate the central tendency (medians) and overall dispersion, while the threshold proportions highlight the prevalence of extreme cases. If medians are similar but one group shows a higher mean, larger SD, and larger maxima with higher proportions above the thresholds, that pattern suggests a heavier right tail (i.e., more subjects with unusually many outliers) in that group.
-
+We computed a per-subject outlier count as the number of proteins with (\|z\|\>3) after log10 transformation and z-scoring. The first table summarizes these counts by group (ASD vs TD), reporting (N), mean, median, SD, and range. Both groups had similar medians (8.5), but TD subjects showed greater variability, with a higher mean (17.6 compared to 13.3) and a wider range of values (0–157 versus 0–126). The second table shows how often subjects exceeded selected thresholds (≥10, 25, 50, 100, and 200 outliers). Across all thresholds, a larger proportion of TD participants were above each cutoff, indicating more frequent extreme outlier counts. Together, these summaries show that while the typical number of outliers per subject was comparable between groups, the TD distribution extended further to the right, with a slightly larger number of subjects showing unusually high outlier counts.
 
 ```{r}
 # ------------------
@@ -136,13 +134,13 @@ kable(summary_tbl,
 
 kable(props_tbl,
             caption = "Proportion of subjects with outlier counts at or above selected thresholds (|z| > 3)")
-```  
-&nbsp;
+```
 
-**Descriptive distributions (histogram & boxplot).**\
+ 
+
+**Descriptive distributions (histogram & boxplot)**\
 
 The histogram of per-subject outlier counts shows that both ASD and TD groups cluster around similar values, but the TD group has a heavier right tail, with more subjects showing very high counts. The boxplot confirms this: medians are identical across groups, but TD participants show greater spread and more extreme high values. Tukey-flagged outlier participants are visible as red points in the boxplot.
-
 
 ```{r}
 #| echo: false
@@ -160,6 +158,22 @@ fences <- outlier_counts %>%
     upper = Q3 + 1.5 * IQR,
     .groups = "drop"
   )
+
+# -------------------
+# Histogram by group (faceted)
+# -------------------
+p_hist <- ggplot(outlier_counts, aes(x = outlier_n, fill = group)) +
+  geom_histogram(bins = 30, alpha = 0.6) +
+  facet_wrap(~ group, ncol = 1, scales = "free_y") +
+  labs(
+    title = "Histogram of Per-Subject Outlier Counts",
+    x = "Number of Outliers (|z| > 3)",
+    y = "Frequency"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+p_hist
 
 outlier_flagged <- outlier_counts %>%
   left_join(fences, by = "group") %>%
@@ -181,27 +195,12 @@ p_box <- ggplot(outlier_flagged, aes(x = group, y = outlier_n, color = is_outlie
   theme_minimal()
 
 p_box
-
-# -------------------
-# Histogram by group (faceted)
-# -------------------
-p_hist <- ggplot(outlier_counts, aes(x = outlier_n, fill = group)) +
-  geom_histogram(bins = 30, alpha = 0.6) +
-  facet_wrap(~ group, ncol = 1, scales = "free_y") +
-  labs(
-    title = "Histogram of Per-Subject Outlier Counts",
-    x = "Number of Outliers (|z| > 3)",
-    y = "Frequency"
-  ) +
-  theme_minimal() +
-  theme(legend.position = "none")
-
-p_hist
 ```  
 &nbsp;
 
-**Wilcoxon rank-sum test.**\
-The test of group differences in outlier counts showed no evidence of a location shift (W = 3028.5, p = 0.817), consistent with identical medians (8.5).
+**Group Comparisons of Outlier Counts**\
+
+The Wilcoxon rank-sum test showed no significant difference in median outlier counts between ASD and TD participants (\(W = 3028.5\), \(p = 0.82\)). Using Tukey’s 1.5×IQR rule, 9 of 78 TD participants (11.5%) and 4 of 76 ASD participants (5.3%) were flagged as outliers. The chi-square test comparing these proportions was not significant, indicating that while extreme subjects occurred in both groups, they were slightly more common among TD participants without reaching statistical significance.
 
 ```{r}
 #| echo: false
@@ -245,14 +244,13 @@ knitr::kable(chisq_tbl, caption = "Chi-square test comparing flagged proportions
 ```  
 &nbsp;
 
+**Overall interpretation**\
 
-**Overall interpretation.**\
 - Both groups share a similar central tendency (same medians, Wilcoxon not significant).\
 - The TD group shows greater dispersion and heavier tails, including more extreme subjects.\
 - Using Tukey’s rule, a larger proportion of TD participants were classified as outliers compared with ASD.
 
 **Outlier Analysis Conclusion:** While typical participants look similar in ASD and TD, extremely outlying individuals are more common in the TD group.
-
 
 ### Methodological variations
 
