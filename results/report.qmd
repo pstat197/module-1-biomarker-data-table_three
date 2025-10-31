@@ -36,7 +36,11 @@ Preprocessing for the present analysis involved three main steps applied to all 
 
 ## Summary of published analysis
 
-Summarize the methodology of the paper in 1-3 paragraphs. You need not explain the methods in depth as we did in class; just indicate what methods were used and how they were combined. If possible, include a diagram that depicts the methodological design. (Quarto has support for [GraphViz and Mermaid flowcharts](https://quarto.org/docs/authoring/diagrams.html).) Provide key results: the proteins selected for the classifier and the estimated accuracy.
+The study by Hewitson et al. (2021) aimed to identify serum protein biomarkers that could distinguish children with autism spectrum disorder (ASD) from typically developing (TD) controls. Blood samples from 154 male children (76 ASD and 78 TD) were analyzed using the SOMAscan® 1.3K proteomic platform, which quantified 1,317 serum proteins. After quality control procedures excluded 192 proteins, the remaining 1,125 were log transformed, standardized to z-scores, and values beyond ±3 standard deviations were trimmed to reduce the influence of extreme outliers.
+
+Three feature selection approaches were applied: two-sample t-tests comparing ASD and TD groups, random forest importance rankings, and Spearman correlations between protein levels and ADOS scores. From each method, the ten most informative proteins were selected, and the overlapping set across all three approaches consisted of IgD, suPAR, MAPK14, EPHB2, and DERM, which defined the core panel.
+
+Logistic regression models were then used to evaluate classification performance and to assess whether adding additional proteins could improve accuracy. Four additional proteins, ROR1, GI24, eIF-4H, and ARSB, each improved classification performance when added to the five-protein core set. The combined nine-protein optimal panel achieved an AUC of 86% (sensitivity 83%, specificity 84%).
 
 ## Findings
 
