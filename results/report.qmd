@@ -1,7 +1,7 @@
 ---
 title: "Biomarkers of ASD"
-subtitle: "If you want a subtitle put it here"
-author: "List names here"
+subtitle: "Evaluating the impact of preprocessing, outlier detection, and selection strategies on ASD biomarker accuracy"
+author: "Jeff Loomis"
 date: last-modified
 published-title: "Updated"
 editor: visual
@@ -41,6 +41,54 @@ The study by Hewitson et al. (2021) aimed to identify serum protein biomarkers t
 Three feature selection approaches were applied: two-sample t-tests comparing ASD and TD groups, random forest importance rankings, and Spearman correlations between protein levels and ADOS scores. From each method, the ten most informative proteins were selected, and the overlapping set across all three approaches consisted of IgD, suPAR, MAPK14, EPHB2, and DERM, which defined the core panel.
 
 Logistic regression models were then used to evaluate classification performance and to assess whether adding additional proteins could improve accuracy. Four additional proteins, ROR1, GI24, eIF-4H, and ARSB, each improved classification performance when added to the five-protein core set. The combined nine-protein optimal panel achieved an AUC of 86% (sensitivity 83%, specificity 84%).
+
+#### Workflow of Hewitson et al. (2021) Biomarker Analysis
+
+ 
+
+```{r}
+#| echo: false
+if (!requireNamespace("DiagrammeR", quietly = TRUE)) install.packages("DiagrammeR")
+library(DiagrammeR)
+
+grViz("
+digraph G {
+  rankdir=TB;
+  graph [splines=true, nodesep=0.6, ranksep=0.5];
+  node  [shape=box, style=\"rounded,filled\", fillcolor=\"#F5F7FA\", color=\"#94A3B8\", fontname=\"Helvetica\"];
+  edge  [color=\"#94A3B8\"];
+
+  # Top row (data & preprocessing)
+  A [label=\"Serum samples\\n154 boys (76 ASD, 78 TD)\"];
+  B [label=\"SOMAscan 1.3K\\n1,317 proteins\"];
+  C [label=\"Protein QC\\nremove 192\"];
+  D [label=\"Retained\\n1,125 proteins\"];
+  E [label=\"Preprocessing\\nlog10 transform, z-score, trim ±3 SD\"];
+
+  # Second row (feature selection & modeling)
+  M1 [label=\"t-tests\\n(ASD vs TD)\"];
+  M2 [label=\"Random forest\\nimportance\"];
+  M3 [label=\"Spearman correlation\\nwith ADOS\"];
+  CORE [label=\"Overlap of top 10\\nfrom each method\\nIgD, suPAR, MAPK14, EPHB2, DERM\"];
+  ADD4 [label=\"Add 4 proteins\\nROR1, GI24, eIF-4H, ARSB\"];
+  LR [label=\"Logistic regression\\nmodeling\"];
+  FINAL [label=\"Final classifier\\n9-protein panel\\nAUC 86% (sens 83%, spec 84%)\"];
+
+  {rank=same; M1; M2; M3}
+
+  A -> B -> C -> D -> E;
+  E -> M1;
+  E -> M2;
+  E -> M3;
+
+  M1 -> CORE;
+  M2 -> CORE;
+  M3 -> CORE;
+
+  CORE -> ADD4 -> LR -> FINAL;
+}
+")
+```
 
 ## Findings
 
@@ -199,12 +247,13 @@ p_box <- ggplot(outlier_flagged, aes(x = group, y = outlier_n, color = is_outlie
   theme_minimal()
 
 p_box
-```  
-&nbsp;
+```
+
+ 
 
 **Group Comparisons of Outlier Counts**\
 
-The Wilcoxon rank-sum test showed no significant difference in median outlier counts between ASD and TD participants (\(W = 3028.5\), \(p = 0.82\)). Using Tukey’s 1.5×IQR rule, 9 of 78 TD participants (11.5%) and 4 of 76 ASD participants (5.3%) were flagged as outliers. The chi-square test comparing these proportions was not significant, indicating that while extreme subjects occurred in both groups, they were slightly more common among TD participants without reaching statistical significance.
+The Wilcoxon rank-sum test showed no significant difference in median outlier counts between ASD and TD participants ((W = 3028.5), (p = 0.82)). Using Tukey’s 1.5×IQR rule, 9 of 78 TD participants (11.5%) and 4 of 76 ASD participants (5.3%) were flagged as outliers. The chi-square test comparing these proportions was not significant, indicating that while extreme subjects occurred in both groups, they were slightly more common among TD participants without reaching statistical significance.
 
 ```{r}
 #| echo: false
@@ -245,14 +294,15 @@ chisq_tbl <- tibble::tibble(
   p_value   = chisq_res$p.value
 )
 knitr::kable(chisq_tbl, caption = "Chi-square test comparing flagged proportions across groups")
-```  
-&nbsp;
+```
+
+ 
 
 **Overall interpretation**\
 
-- Both groups share a similar central tendency (same medians, Wilcoxon not significant).\
-- The TD group shows greater dispersion and heavier tails, including more extreme subjects.\
-- Using Tukey’s rule, a larger proportion of TD participants were classified as outliers compared with ASD.
+-   Both groups share a similar central tendency (same medians, Wilcoxon not significant).\
+-   The TD group shows greater dispersion and heavier tails, including more extreme subjects.\
+-   Using Tukey’s rule, a larger proportion of TD participants were classified as outliers compared with ASD.
 
 **Outlier Analysis Conclusion:** While typical participants look similar in ASD and TD, extremely outlying individuals are more common in the TD group.
 
