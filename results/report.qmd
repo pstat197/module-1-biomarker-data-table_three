@@ -1,7 +1,7 @@
 ---
 title: "Biomarkers of ASD"
 subtitle: "Evaluating the impact of preprocessing, outlier detection, and selection strategies on ASD biomarker accuracy"
-author: "Jeff Loomis"
+author: "Jeff Loomis, Sanil Katula"
 date: last-modified
 published-title: "Updated"
 editor: visual
@@ -43,8 +43,6 @@ Three feature selection approaches were applied: two-sample t-tests comparing AS
 Logistic regression models were then used to evaluate classification performance and to assess whether adding additional proteins could improve accuracy. Four additional proteins, ROR1, GI24, eIF-4H, and ARSB, each improved classification performance when added to the five-protein core set. The combined nine-protein optimal panel achieved an AUC of 86% (sensitivity 83%, specificity 84%).
 
 #### Workflow of Hewitson et al. (2021) Biomarker Analysis
-
- 
 
 ```{r}
 #| echo: false
@@ -96,7 +94,43 @@ Summarize your findings here. I've included some subheaders in a way that seems 
 
 ### Impact of preprocessing
 
-**TODO**
+#### Log-transformation of protein intensities
+
+To assess the effect of log-transformation, I compared raw versus log10-transformed protein intensities.  
+On the raw scale, most proteins were strongly right-skewed (median skew ≈ 2.0).  
+After applying the log10 transform (with a small positive shift for non-positive values), distributions became substantially more symmetric (median skew ≈ 0.2).  
+About 70 % of proteins showed reduced absolute skewness, and the relationship between the mean and standard deviation was much weaker, indicating partial variance stabilization.  
+
+Overall, the log10 transformation reduces skewness, tames extreme high values, and stabilizes variance—important for statistical models that assume approximate normality and homoscedasticity.
+
+```{r}
+#| echo: false
+#| fig-cap: "Distributions of raw (left) and log10-transformed (right) protein intensities for a random sample of nine proteins."
+#| layout-ncol: 2
+knitr::include_graphics(c(
+  "q1_log/hist_raw_sample.png",
+  "q1_log/hist_log_sample.png"
+))
+
+
+#| echo: false
+#| fig-cap: "Q–Q plots for the same proteins before (left) and after (right) log10 transformation, showing improved approximate normality."
+#| layout-ncol: 2
+
+knitr::include_graphics(c(
+"q1_log/qq_raw_sample.png",
+"q1_log/qq_log_sample.png"
+))
+
+#| echo: false
+#| fig-cap: "Standard deviation versus mean for each protein on the raw (left) and log10 (right) scales. The strong coupling of mean and SD on the raw scale is reduced after log-transformation."
+#| layout-ncol: 2
+
+knitr::include_graphics(c(
+"q1_log/mean_sd_raw.png",
+"q1_log/mean_sd_log.png"
+))
+```
 
 ### Outliers Analysis
 
