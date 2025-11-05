@@ -1,7 +1,7 @@
 ---
 title: "Biomarkers of ASD"
 subtitle: "Evaluating the impact of preprocessing, outlier detection, and selection strategies on ASD biomarker accuracy"
-author: "Jeff Loomis, Sanil Katula"
+author: "Jeff Loomis, Sanil Katula, Shahil Patel"
 date: last-modified
 published-title: "Updated"
 editor: visual
@@ -96,10 +96,10 @@ Summarize your findings here. I've included some subheaders in a way that seems 
 
 #### Log-transformation of protein intensities
 
-To assess the effect of log-transformation, I compared raw versus log10-transformed protein intensities.  
-On the raw scale, most proteins were strongly right-skewed (median skew ≈ 2.0).  
-After applying the log10 transform (with a small positive shift for non-positive values), distributions became substantially more symmetric (median skew ≈ 0.2).  
-About 70 % of proteins showed reduced absolute skewness, and the relationship between the mean and standard deviation was much weaker, indicating partial variance stabilization.  
+To assess the effect of log-transformation, I compared raw versus log10-transformed protein intensities.\
+On the raw scale, most proteins were strongly right-skewed (median skew ≈ 2.0).\
+After applying the log10 transform (with a small positive shift for non-positive values), distributions became substantially more symmetric (median skew ≈ 0.2).\
+About 70 % of proteins showed reduced absolute skewness, and the relationship between the mean and standard deviation was much weaker, indicating partial variance stabilization.
 
 Overall, the log10 transformation reduces skewness, tames extreme high values, and stabilizes variance—important for statistical models that assume approximate normality and homoscedasticity.
 
@@ -340,9 +340,557 @@ knitr::kable(chisq_tbl, caption = "Chi-square test comparing flagged proportions
 
 **Outlier Analysis Conclusion:** While typical participants look similar in ASD and TD, extremely outlying individuals are more common in the TD group.
 
-### Methodological variations
+## Methodological variations
 
-Task 3
+We were then tasked to find out what happens to the model under these 3 modifications:
+
+1\) Repeat the analysis but carry out the entire selection procedure on a training partition -- in other words, set aside some testing data at the very beginning and don't use it until you are evaluating accuracy at the very end.
+
+2\) Choose a larger number (more than ten) of top predictive proteins using each selection method.
+
+3\) Use a fuzzy intersection instead of a hard intersection to combine the sets of top predictive proteins across selection methods.
+
+### Original Model:
+
+The original model produces the following result:
+
+```{r}
+library(tidyverse)
+library(infer)
+library(randomForest)
+library(tidymodels)
+library(modelr)
+library(yardstick)
+load("~/Documents/UCSB/2025-2026/PSTAT197A/module-1-biomarker-data-table_three/data/biomarker-clean.RData")
+
+## MULTIPLE TESTING
+####################
+
+# function to compute tests
+test_fn <- function(.df){
+  t_test(.df, 
+         formula = level ~ group,
+         order = c('ASD', 'TD'),
+         alternative = 'two-sided',
+         var.equal = F)
+}
+
+ttests_out <- biomarker_clean %>%
+  # drop ADOS score
+  select(-ados) %>%
+  # arrange in long format
+  pivot_longer(-group, 
+               names_to = 'protein', 
+               values_to = 'level') %>%
+  # nest by protein
+  nest(data = c(level, group)) %>% 
+  # compute t tests
+  mutate(ttest = map(data, test_fn)) %>%
+  unnest(ttest) %>%
+  # sort by p-value
+  arrange(p_value) %>%
+  # multiple testing correction
+  mutate(m = n(),
+         hm = log(m) + 1/(2*m) - digamma(1),
+         rank = row_number(),
+         p.adj = m*hm*p_value/rank)
+
+# select significant proteins
+proteins_s1 <- ttests_out %>%
+  slice_min(p.adj, n = 10) %>%
+  pull(protein)
+
+## RANDOM FOREST
+##################
+
+# store predictors and response separately
+predictors <- biomarker_clean %>%
+  select(-c(group, ados))
+
+response <- biomarker_clean %>% pull(group) %>% factor()
+
+# fit RF
+set.seed(101422)
+rf_out <- randomForest(x = predictors, 
+                       y = response, 
+                       ntree = 1000, 
+                       importance = T)
+
+# check errors
+rf_out$confusion
+
+# compute importance scores
+proteins_s2 <- rf_out$importance %>% 
+  as_tibble() %>%
+  mutate(protein = rownames(rf_out$importance)) %>%
+  slice_max(MeanDecreaseGini, n = 10) %>%
+  pull(protein)
+
+## LOGISTIC REGRESSION
+#######################
+
+# select subset of interest
+# select subset of interest
+proteins_sstar <- intersect(proteins_s1, proteins_s2)
+
+biomarker_sstar <- biomarker_clean %>%
+  select(group, any_of(proteins_sstar)) %>%
+  # *** FIX: Create 'class' as a factor with explicit levels
+  mutate(class = factor(ifelse(group == 'ASD', "ASD", "TD"), levels = c("TD", "ASD"))) %>%
+  select(-group)
+
+# partition into training and test set
+set.seed(101422)
+biomarker_split <- biomarker_sstar %>%
+  initial_split(prop = 0.8)
+
+# fit logistic regression model to training set
+fit <- glm(class ~ ., 
+           data = training(biomarker_split), 
+           family = 'binomial')
+
+# evaluate errors on test set
+class_metrics <- metric_set(sensitivity, 
+                            specificity, 
+                            accuracy,
+                            roc_auc)
+
+testing(biomarker_split) %>%
+  add_predictions(fit, type = 'response') %>%
+  
+  # Add a new column for the *predicted class* as a factor
+  mutate(
+    .pred_class = factor(ifelse(pred > 0.5, "ASD", "TD"), levels = c("TD", "ASD"))
+  ) %>%
+  
+  # Call class_metrics using the column names
+  class_metrics(truth = class,            # The true factor column
+                estimate = .pred_class,   # The predicted factor column
+                pred,                     # The raw probability (for roc_auc)
+                event_level = 'second')   # 'second' level is "ASD"
+
+
+```
+
+-   RF OOB Error: Based on all 154 subjects.
+
+-   Final Accuracy: 77.4%
+
+-   Final AUC: 88.3%
+
+    One problem from this method is that the feature selection was performed on the entire data set before splitting. This means the selection process "peeked" at the test data, choosing features that were already known to work well on it. This inflates the final score. The other methods would have a lower score than this.
+
+### Variation 1:
+
+Repeat the analysis but carry out the entire selection procedure on a training partition -- in other words, set aside some testing data at the very beginning and don't use it until you are evaluating accuracy at the very end.
+
+```{r}
+library(tidyverse)
+library(infer)
+library(randomForest)
+library(tidymodels)
+library(modelr)
+library(yardstick)
+
+load("~/Documents/UCSB/2025-2026/PSTAT197A/module-1-biomarker-data-table_three/data/biomarker-clean.RData")
+
+## 1. GLOBAL DATA PARTITION
+###########################
+# KEY CHANGE: Set aside test data at the very beginning.
+# We use strata = group to ensure both classes are represented
+# proportionally in the train and test sets.
+set.seed(101422)
+biomarker_split_global <- biomarker_clean %>%
+  initial_split(prop = 0.8, strata = group)
+
+# Create the two data frames we will use
+train_data <- training(biomarker_split_global)
+test_data  <- testing(biomarker_split_global)
+
+
+## 2. MULTIPLE TESTING (on Training Data)
+#########################################
+
+# function to compute tests (no change)
+test_fn <- function(.df){
+  t_test(.df, 
+         formula = level ~ group,
+         order = c('ASD', 'TD'),
+         alternative = 'two-sided',
+         var.equal = F)
+}
+
+# KEY CHANGE: Perform t-tests *only* on the training data
+ttests_out_train <- train_data %>% # <-- Use train_data
+  # drop ADOS score
+  select(-ados) %>%
+  # arrange in long format
+  pivot_longer(-group, 
+               names_to = 'protein', 
+               values_to = 'level') %>%
+  # nest by protein
+  nest(data = c(level, group)) %>% 
+  # compute t tests
+  mutate(ttest = map(data, test_fn)) %>%
+  unnest(ttest) %>%
+  # sort by p-value
+  arrange(p_value) %>%
+  # multiple testing correction
+  mutate(m = n(),
+         hm = log(m) + 1/(2*m) - digamma(1),
+         rank = row_number(),
+         p.adj = m*hm*p_value/rank)
+
+# Select significant proteins *based only on training data*
+proteins_s1_train <- ttests_out_train %>%
+  slice_min(p.adj, n = 10) %>%
+  pull(protein)
+
+
+## 3. RANDOM FOREST (on Training Data)
+#######################################
+
+# KEY CHANGE: Store predictors and response *from the training data*
+predictors_train <- train_data %>% # <-- Use train_data
+  select(-c(group, ados))
+
+response_train <- train_data %>% pull(group) %>% factor() # <-- Use train_data
+
+# KEY CHANGE: Fit RF *only* on the training data
+set.seed(101422)
+rf_out_train <- randomForest(x = predictors_train, 
+                             y = response_train, 
+                             ntree = 1000, 
+                             importance = T)
+
+# check errors (this is the OOB error on the training set)
+rf_out_train$confusion
+
+# Compute importance scores *from the training RF*
+proteins_s2_train <- rf_out_train$importance %>% 
+  as_tibble() %>%
+  mutate(protein = rownames(rf_out_train$importance)) %>%
+  slice_max(MeanDecreaseGini, n = 10) %>%
+  pull(protein)
+
+
+## 4. LOGISTIC REGRESSION (Fit on Train, Evaluate on Test)
+###########################################################
+
+# KEY CHANGE: Select subset of interest *based on training set feature selection*
+proteins_sstar_train <- intersect(proteins_s1_train, proteins_s2_train)
+
+# KEY CHANGE: Create the final *training* set with *only* the selected features
+glm_train_data <- train_data %>%
+  select(group, any_of(proteins_sstar_train)) %>%
+  # Use the factor logic you had
+  mutate(class = factor(ifelse(group == 'ASD', "ASD", "TD"), levels = c("TD", "ASD"))) %>%
+  select(-group)
+
+# KEY CHANGE: Create the final *test* set with *only* the features selected during training
+glm_test_data <- test_data %>%
+  select(group, any_of(proteins_sstar_train)) %>%
+  mutate(class = factor(ifelse(group == 'ASD', "ASD", "TD"), levels = c("TD", "ASD"))) %>%
+  select(-group)
+
+# Fit logistic regression model *only* to the new training set
+fit_final <- glm(class ~ ., 
+                 data = glm_train_data, # <-- Use glm_train_data
+                 family = 'binomial')
+
+# Define metrics
+class_metrics <- metric_set(sensitivity, 
+                            specificity, 
+                            accuracy,
+                            roc_auc)
+
+# KEY CHANGE: Evaluate errors *only* on the new, held-out test set
+glm_test_data %>% # <-- Use glm_test_data
+  add_predictions(fit_final, type = 'response') %>%
+  
+  mutate(
+    .pred_class = factor(ifelse(pred > 0.5, "ASD", "TD"), levels = c("TD", "ASD"))
+  ) %>%
+  
+  # Call class_metrics using the column names
+  class_metrics(truth = class,            # The true factor column
+                estimate = .pred_class,   # The predicted factor column
+                pred,                     # The raw probability (for roc_auc)
+                event_level = 'second')   # 'second' level is "ASD"
+
+```
+
+-   RF OOB Error: Based on the smaller training set (122 subjects)
+
+-   Final Accuracy: 68.8%
+
+-   Final AUC: 71.5%
+
+    The accuracy and AUC dropped a lot. This 68.8% accuracy is the honest and realistic score. The \~9-point drop in accuracy reveals the cost of data leakage. The original model was much more optimistic, and this model leads to more truthful results.
+
+### Variation 2:
+
+Choose a larger number (more than ten) of top predictive proteins using each selection method. Decided to use n=25 instead of n=10.
+
+```{r}
+library(tidyverse)
+library(infer)
+library(randomForest)
+library(tidymodels)
+library(modelr)
+library(yardstick)
+load("~/Documents/UCSB/2025-2026/PSTAT197A/module-1-biomarker-data-table_three/data/biomarker-clean.RData")
+
+## MULTIPLE TESTING
+####################
+
+# function to compute tests
+test_fn <- function(.df){
+  t_test(.df, 
+         formula = level ~ group,
+         order = c('ASD', 'TD'),
+         alternative = 'two-sided',
+         var.equal = F)
+}
+
+ttests_out <- biomarker_clean %>%
+  # drop ADOS score
+  select(-ados) %>%
+  # arrange in long format
+  pivot_longer(-group, 
+               names_to = 'protein', 
+               values_to = 'level') %>%
+  # nest by protein
+  nest(data = c(level, group)) %>% 
+  # compute t tests
+  mutate(ttest = map(data, test_fn)) %>%
+  unnest(ttest) %>%
+  # sort by p-value
+  arrange(p_value) %>%
+  # multiple testing correction
+  mutate(m = n(),
+         hm = log(m) + 1/(2*m) - digamma(1),
+         rank = row_number(),
+         p.adj = m*hm*p_value/rank)
+
+# select significant proteins
+proteins_s1 <- ttests_out %>%
+  slice_min(p.adj, n = 25) %>%
+  pull(protein)
+
+## RANDOM FOREST
+##################
+
+# store predictors and response separately
+predictors <- biomarker_clean %>%
+  select(-c(group, ados))
+
+response <- biomarker_clean %>% pull(group) %>% factor()
+
+# fit RF
+set.seed(101422)
+rf_out <- randomForest(x = predictors, 
+                       y = response, 
+                       ntree = 1000, 
+                       importance = T)
+
+# check errors
+rf_out$confusion
+
+# compute importance scores
+proteins_s2 <- rf_out$importance %>% 
+  as_tibble() %>%
+  mutate(protein = rownames(rf_out$importance)) %>%
+  slice_max(MeanDecreaseGini, n = 25) %>%
+  pull(protein)
+
+## LOGISTIC REGRESSION
+#######################
+
+# select subset of interest
+# select subset of interest
+proteins_sstar <- intersect(proteins_s1, proteins_s2)
+
+biomarker_sstar <- biomarker_clean %>%
+  select(group, any_of(proteins_sstar)) %>%
+  # *** FIX: Create 'class' as a factor with explicit levels
+  mutate(class = factor(ifelse(group == 'ASD', "ASD", "TD"), levels = c("TD", "ASD"))) %>%
+  select(-group)
+
+# partition into training and test set
+set.seed(101422)
+biomarker_split <- biomarker_sstar %>%
+  initial_split(prop = 0.8)
+
+# fit logistic regression model to training set
+fit <- glm(class ~ ., 
+           data = training(biomarker_split), 
+           family = 'binomial')
+
+# evaluate errors on test set
+class_metrics <- metric_set(sensitivity, 
+                            specificity, 
+                            accuracy,
+                            roc_auc)
+
+testing(biomarker_split) %>%
+  add_predictions(fit, type = 'response') %>%
+  
+  # Add a new column for the *predicted class* as a factor
+  mutate(
+    .pred_class = factor(ifelse(pred > 0.5, "ASD", "TD"), levels = c("TD", "ASD"))
+  ) %>%
+  
+  # Call class_metrics using the column names
+  class_metrics(truth = class,            # The true factor column
+                estimate = .pred_class,   # The predicted factor column
+                pred,                     # The raw probability (for roc_auc)
+                event_level = 'second')   # 'second' level is "ASD"
+
+```
+
+-   RF OOB Error: Based on all 154 subjects
+
+-   Final Accuracy: 83.9%
+
+-   Final AUC: 95.0%
+
+-   How it was affected: The accuracy and AUC increased dramatically
+
+    This suggests that the original model (n=10) was underfit. The features ranked 11-25 still contained valuable information. The model became more complex and could capture more of the underlying signal by including them which leads to better performance.
+
+### Variation 3:
+
+Use a fuzzy intersection instead of a hard intersection to combine the sets of top predictive proteins across selection methods.
+
+The chnage was using union() for a "fuzzy intersection" instead of intersection.
+
+```{r}
+library(tidyverse)
+library(infer)
+library(randomForest)
+library(tidymodels)
+library(modelr)
+library(yardstick)
+load("~/Documents/UCSB/2025-2026/PSTAT197A/module-1-biomarker-data-table_three/data/biomarker-clean.RData")
+
+## MULTIPLE TESTING
+####################
+
+# function to compute tests
+test_fn <- function(.df){
+  t_test(.df, 
+         formula = level ~ group,
+         order = c('ASD', 'TD'),
+         alternative = 'two-sided',
+         var.equal = F)
+}
+
+ttests_out <- biomarker_clean %>%
+  # drop ADOS score
+  select(-ados) %>%
+  # arrange in long format
+  pivot_longer(-group, 
+               names_to = 'protein', 
+               values_to = 'level') %>%
+  # nest by protein
+  nest(data = c(level, group)) %>% 
+  # compute t tests
+  mutate(ttest = map(data, test_fn)) %>%
+  unnest(ttest) %>%
+  # sort by p-value
+  arrange(p_value) %>%
+  # multiple testing correction
+  mutate(m = n(),
+         hm = log(m) + 1/(2*m) - digamma(1),
+         rank = row_number(),
+         p.adj = m*hm*p_value/rank)
+
+# select significant proteins
+proteins_s1 <- ttests_out %>%
+  slice_min(p.adj, n = 10) %>%
+  pull(protein)
+
+## RANDOM FOREST
+##################
+
+# store predictors and response separately
+predictors <- biomarker_clean %>%
+  select(-c(group, ados))
+
+response <- biomarker_clean %>% pull(group) %>% factor()
+
+# fit RF
+set.seed(101422)
+rf_out <- randomForest(x = predictors, 
+                       y = response, 
+                       ntree = 1000, 
+                       importance = T)
+
+# check errors
+rf_out$confusion
+
+# compute importance scores
+proteins_s2 <- rf_out$importance %>% 
+  as_tibble() %>%
+  mutate(protein = rownames(rf_out$importance)) %>%
+  slice_max(MeanDecreaseGini, n = 10) %>%
+  pull(protein)
+
+## LOGISTIC REGRESSION
+#######################
+
+# select subset of interest
+# select subset of interest
+proteins_sstar <- union(proteins_s1, proteins_s2)
+
+biomarker_sstar <- biomarker_clean %>%
+  select(group, any_of(proteins_sstar)) %>%
+  # *** FIX: Create 'class' as a factor with explicit levels
+  mutate(class = factor(ifelse(group == 'ASD', "ASD", "TD"), levels = c("TD", "ASD"))) %>%
+  select(-group)
+
+# partition into training and test set
+set.seed(101422)
+biomarker_split <- biomarker_sstar %>%
+  initial_split(prop = 0.8)
+
+# fit logistic regression model to training set
+fit <- glm(class ~ ., 
+           data = training(biomarker_split), 
+           family = 'binomial')
+
+# evaluate errors on test set
+class_metrics <- metric_set(sensitivity, 
+                            specificity, 
+                            accuracy,
+                            roc_auc)
+
+testing(biomarker_split) %>%
+  add_predictions(fit, type = 'response') %>%
+  
+  # Add a new column for the *predicted class* as a factor
+  mutate(
+    .pred_class = factor(ifelse(pred > 0.5, "ASD", "TD"), levels = c("TD", "ASD"))
+  ) %>%
+  
+  # Call class_metrics using the column names
+  class_metrics(truth = class,            # The true factor column
+                estimate = .pred_class,   # The predicted factor column
+                pred,                     # The raw probability (for roc_auc)
+                event_level = 'second')   # 'second' level is "ASD"
+
+```
+
+-   RF OOB Error: Based on all 154 subjects
+
+-   Final Accuracy: 67.7%
+
+-   Final AUC: 78.3%
+
+-   How it was affected: The accuracy and AUC dropped significantly
+
+    This shows the danger of overfitting. The original intersection is a strict filter and keeps only high confidence features that both methods agreed on, while the union is a permissive filter and keeps features that either method liked. The union added more noise than signal and caused the model to drop in performance.
 
 ### Improved classifier
 
