@@ -1,7 +1,7 @@
 ---
 title: "Biomarkers of ASD"
 subtitle: "Evaluating the impact of preprocessing, outlier detection, and selection strategies on ASD biomarker accuracy"
-author: "Jeff Loomis, Sanil Katula, Shahil Patel"
+author: "Jeff Loomis, Sanil Katula, Shahil Patel, Max Chang"
 date: last-modified
 published-title: "Updated"
 editor: visual
@@ -18,6 +18,22 @@ Use this as a template. Keep the headers and remove all other text. In all, your
 
 ```{r}
 # load any other packages and read data here
+required_packages <- c("tidyverse", "knitr", "DiagrammeR", "glmnet")
+
+# Check and install missing packages
+missing_packages <- required_packages[!(required_packages %in% installed.packages()[, "Package"])]
+
+if (length(missing_packages) > 0) {
+  install.packages(missing_packages, repos = "https://cloud.r-project.org", type = "binary")
+}
+
+# Update htmltools if needed (DiagrammeR dependency)
+if (requireNamespace("htmltools", quietly = TRUE)) {
+  if (packageVersion("htmltools") < "0.5.7") {
+    install.packages("htmltools", repos = "https://cloud.r-project.org", type = "binary")
+  }
+}
+
 library(tidyverse)
 library(knitr)
 ```
@@ -46,7 +62,6 @@ Logistic regression models were then used to evaluate classification performance
 
 ```{r}
 #| echo: false
-if (!requireNamespace("DiagrammeR", quietly = TRUE)) install.packages("DiagrammeR")
 library(DiagrammeR)
 
 grViz("
@@ -361,7 +376,7 @@ library(randomForest)
 library(tidymodels)
 library(modelr)
 library(yardstick)
-load('data/biomarker-clean.RData')
+load('../data/biomarker-clean.RData')
 
 ## MULTIPLE TESTING
 ####################
@@ -492,7 +507,7 @@ library(tidymodels)
 library(modelr)
 library(yardstick)
 
-load('data/biomarker-clean.RData')
+load('../data/biomarker-clean.RData')
 
 ## 1. GLOBAL DATA PARTITION
 ###########################
@@ -639,7 +654,7 @@ library(randomForest)
 library(tidymodels)
 library(modelr)
 library(yardstick)
-load('data/biomarker-clean.RData')
+load('../data/biomarker-clean.RData')
 
 ## MULTIPLE TESTING
 ####################
@@ -772,7 +787,7 @@ library(randomForest)
 library(tidymodels)
 library(modelr)
 library(yardstick)
-load('data/biomarker-clean.RData')
+load('../data/biomarker-clean.RData')
 
 ## MULTIPLE TESTING
 ####################
@@ -894,4 +909,136 @@ testing(biomarker_split) %>%
 
 ### Improved classifier
 
-Task 4
+#### Motivation: Seeking a simpler biomarker panel
+
+While the in-class analysis identified a 5-protein panel with strong classification accuracy (77.4% accuracy, 88.3% AUC), clinical translation of biomarker panels benefits from simplicity. Fewer proteins mean lower assay costs, faster turnaround times, and reduced technical variability. We therefore sought to identify a minimal protein panel that maintains comparable diagnostic performance.
+
+#### Approach: LASSO regularization for automatic feature selection
+
+We employed LASSO (Least Absolute Shrinkage and Selection Operator) regression, a penalized logistic regression method that performs automatic feature selection via L1 regularization. LASSO works by adding a penalty term proportional to the absolute value of coefficients, which shrinks less important features exactly to zero, effectively removing them from the model. This makes LASSO particularly well-suited for high-dimensional biomarker data where interpretability and parsimony are valued.
+
+Our methodological workflow consisted of five steps:
+
+1.  **Baseline replication**: We first replicated the in-class analysis to establish benchmark performance metrics using the same random seed and procedures.
+
+2.  **Candidate expansion**: Rather than using only the strict intersection of t-test and Random Forest top-10 lists (which yielded 5 proteins), we used the *union* of both lists to create a larger candidate pool (15 proteins total). This gave LASSO more features to consider while still focusing on biologically relevant candidates.
+
+3.  **LASSO feature selection**: We applied 10-fold cross-validation on the training set to select the optimal regularization strength (λ). Following best practices, we used the "1 standard error rule" (λ~1SE~) to favor a simpler model with slightly higher regularization, as it tends to generalize better and reduces overfitting.
+
+4.  **Model evaluation**: We evaluated the LASSO-regularized logistic regression on the held-out test set and computed sensitivity, specificity, accuracy, and ROC-AUC.
+
+5.  **Comparison**: We also fit a standard (unpenalized) logistic regression using only the LASSO-selected features to assess whether the regularization itself improved performance beyond simple feature selection.
+
+#### Workflow diagram
+
+```{r}
+#| echo: false
+library(DiagrammeR)
+
+grViz("
+digraph G {
+  rankdir=TB;
+  graph [splines=true, nodesep=0.6, ranksep=0.5];
+  node  [shape=box, style='rounded,filled', fillcolor='#F5F7FA', color='#94A3B8', fontname='Helvetica'];
+  edge  [color='#94A3B8'];
+
+  # Top row
+  A [label='Preprocessed data\\n(biomarker_clean)\\n154 subjects, 1,317 proteins'];
+  
+  # Feature selection
+  M1 [label='t-tests\\nTop 10 proteins'];
+  M2 [label='Random Forest\\nTop 10 proteins'];
+  
+  # Baseline vs New
+  BASELINE [label='Baseline approach\\nIntersection\\n5 proteins', fillcolor='#FEF3C7'];
+  UNION [label='LASSO approach\\nUnion (candidate pool)\\n15 proteins', fillcolor='#DBEAFE'];
+  
+  # LASSO
+  LASSO [label='LASSO regression\\n10-fold CV\\nλ selection (1SE rule)', fillcolor='#DBEAFE'];
+  SELECTED [label='LASSO-selected features\\n3 proteins\\nDERM, IgD, eIF-4H', fillcolor='#DBEAFE'];
+  
+  # Final models
+  BASELINE_GLM [label='Baseline GLM\\n5 proteins\\nAcc: 77.4%, AUC: 88.3%', fillcolor='#FEF3C7'];
+  LASSO_GLM [label='LASSO-regularized GLM\\n3 proteins\\nAcc: 67.7%, AUC: 75.8%', fillcolor='#DBEAFE'];
+  
+  {rank=same; M1; M2}
+  {rank=same; BASELINE; UNION}
+
+  A -> M1;
+  A -> M2;
+  
+  M1 -> BASELINE;
+  M2 -> BASELINE;
+  
+  M1 -> UNION;
+  M2 -> UNION;
+  
+  BASELINE -> BASELINE_GLM;
+  
+  UNION -> LASSO;
+  LASSO -> SELECTED;
+  SELECTED -> LASSO_GLM;
+}
+")
+```
+
+#### Results
+
+```{r}
+#| echo: false
+library(tidyverse)
+library(knitr)
+
+# Load saved results
+load('q4_simpler_panel_results.RData')
+
+# Display comparison table
+kable(comparison_summary,
+      digits = 3,
+      caption = "Performance comparison: Baseline intersection vs. LASSO-based feature selection")
+```
+
+The baseline approach using the intersection of t-test and Random Forest selections yielded a 5-protein panel (DERM, RELT, MRC2, IgD, Cadherin-5) with strong performance: 77.4% accuracy, 81.3% sensitivity, 73.3% specificity, and 88.3% AUC.
+
+LASSO regularization identified a 3-protein panel (DERM, IgD, eIF-4H), achieving 40% complexity reduction (from 5 to 3 proteins). This simpler panel maintained reasonable diagnostic utility with 67.7% accuracy and 75.8% AUC. Notably, two proteins (DERM and IgD) were selected by both approaches, suggesting their robust discriminatory power across methods.
+
+The LASSO panel showed higher specificity (86.7%) but lower sensitivity (50.0%) compared to baseline. This indicates that the simpler model is more conservative, correctly identifying more typically developing (TD) children but missing more ASD cases.
+
+Interestingly, the standard GLM refitted on the LASSO-selected features performed similarly to the regularized LASSO model itself (67.7% accuracy for both, though standard GLM had slightly lower AUC at 71.3%). This suggests that the primary benefit of LASSO in this case was feature selection rather than coefficient shrinkage.
+
+#### Selected proteins and coefficients
+
+```{r}
+#| echo: false
+library(glmnet)
+
+# Extract and display LASSO coefficients
+lasso_coefs <- coef(lasso_fit, s = cv_lasso$lambda.1se)
+lasso_coef_df <- data.frame(
+  Protein = rownames(lasso_coefs)[which(lasso_coefs != 0)],
+  Coefficient = as.numeric(lasso_coefs[which(lasso_coefs != 0)])
+) %>%
+  arrange(desc(abs(Coefficient)))
+
+kable(lasso_coef_df,
+      digits = 4,
+      caption = "LASSO-selected proteins and their regularized coefficients")
+```
+
+The three selected proteins each contributed meaningfully to classification. DERM (dermatopontin) and IgD (immunoglobulin D) were consistently identified across multiple selection methods, reinforcing their biological relevance. The inclusion of eIF-4H (eukaryotic translation initiation factor 4H) by LASSO but not in the baseline intersection suggests it may capture complementary information when combined with DERM and IgD.
+
+#### Interpretation and clinical implications
+
+This analysis demonstrates a fundamental trade-off in biomarker development: **model complexity versus predictive performance**. The LASSO-based 3-protein panel sacrifices approximately 10 percentage points in accuracy and 12 points in AUC compared to the 5-protein baseline, but achieves a 40% reduction in panel size.
+
+From a clinical perspective, this trade-off may be acceptable in certain contexts:
+
+-   **Screening applications**: Where high specificity is valued to minimize false positives and unnecessary follow-up, the LASSO panel's 86.7% specificity is attractive.
+
+-   **Resource-constrained settings**: Fewer proteins reduce assay costs and complexity, potentially improving accessibility.
+
+-   **Early-stage validation**: A smaller panel may be easier to validate across independent cohorts and platforms.
+
+However, the lower sensitivity (50%) is concerning for diagnostic applications, as it would miss half of true ASD cases. The baseline 5-protein panel's more balanced sensitivity (81.3%) and specificity (73.3%) profile may be more appropriate for clinical diagnosis.
+
+**Key finding**: LASSO successfully identified a minimal 3-protein signature that maintains moderate diagnostic utility, demonstrating that automated regularization methods can extract parsimonious biomarker panels. However, the performance gap suggests that the 5-protein baseline panel may represent a better balance of complexity and accuracy for this dataset. Future work could explore intermediate panel sizes or alternative regularization approaches (e.g., elastic net) to optimize this trade-off.
