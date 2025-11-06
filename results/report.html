@@ -84,10 +84,9 @@ ul.task-list li input[type="checkbox"] {
 </header>
 
 
-<p>Use this as a template. Keep the headers and remove all other text. In all, your report can be quite short. When it is complete, render and then push changes to your team repository.</p>
 <section id="abstract" class="level2">
 <h2 class="anchored" data-anchor-id="abstract">Abstract</h2>
-<p>Write a brief one-paragraph abstract that describes the contents of your write-up.</p>
+<p>In this proteomics analysis of 154 boys and 1,317 serum proteins, we examined biomarkers for distinguishing autism spectrum disorder (ASD) from typically developing (TD) controls and tested how different modeling choices affected results. After log10 transformation, z-scoring, and ±3 SD trimming, the baseline model used t-tests and Random Forests to select the top 10 proteins from each method, intersecting on five (DERM, RELT, MRC2, IgD, Cadherin-5). Logistic regression on these achieved 77.4% accuracy and 88.3% AUC. Three variations showed that (1) doing feature selection only on training data reduced performance (68.8% accuracy, 71.5% AUC), (2) expanding to the top 25 proteins improved it (83.9% accuracy, 95.0% AUC), and (3) using a fuzzy intersection (union) lowered it (67.7% accuracy, 78.3% AUC). A simpler LASSO model with cross-validation selected three proteins (DERM, IgD, eIF-4H), giving 67.7% accuracy and 75.8% AUC with higher specificity (86.7%) but lower sensitivity (50.0%). Overall, the five-protein baseline best balances sensitivity and specificity, while the LASSO model shows that a smaller panel can still perform reasonably well, highlighting a trade-off between simplicity and performance.</p>
 </section>
 <section id="dataset" class="level2">
 <h2 class="anchored" data-anchor-id="dataset">Dataset</h2>
@@ -698,6 +697,13 @@ TD   21 57   0.2692308</code></pre>
 <p><strong>Key finding</strong>: LASSO successfully identified a minimal 3-protein signature that maintains moderate diagnostic utility, demonstrating that automated regularization methods can extract parsimonious biomarker panels. However, the performance gap suggests that the 5-protein baseline panel may represent a better balance of complexity and accuracy for this dataset. Future work could explore intermediate panel sizes or alternative regularization approaches (e.g., elastic net) to optimize this trade-off.</p>
 </section>
 </section>
+</section>
+<section id="summary" class="level2">
+<h2 class="anchored" data-anchor-id="summary">Summary</h2>
+<p>We evaluated serum proteomic biomarkers for distinguishing boys with autism spectrum disorder (ASD) from typically developing (TD) boys, and we quantified how results change under key modeling design choices. We further explored whether a simpler biomarker panel can retain competitive performance.</p>
+<p>Data (n = 154; 1,317 proteins) were preprocessed via log10 transformation, z-score standardization, and trimming at ±3 SD, yielding the analysis set <code>biomarker_clean</code>. The in-class baseline reproduced a two-stage feature selection (two-sample t-tests and Random Forest importance, top 10 each), followed by a hard intersection and logistic regression evaluation on an 80/20 split. We then implemented three methodological variations: (1) performed all selection exclusively on a training partition and evaluated once on a held-out test set; (2) expanded each selection list to the top 25; and (3) used a fuzzy intersection (union) to combine selections. Finally, to pursue a simpler panel (Task 4), we applied LASSO-regularized logistic regression with 10-fold cross-validation (1-SE rule) using the union of the top-10 lists as candidates, and compared against the baseline.</p>
+<p>The replicated baseline (5-protein intersection: DERM, RELT, MRC2, IgD, Cadherin-5) achieved accuracy 77.4% and AUC 88.3%. Variation (1) reduced performance (accuracy 68.8%, AUC 71.5%), reflecting the removal of information leakage when selection is confined to the training set. Variation (2) improved performance (accuracy 83.9%, AUC 95.0%) by allowing more informative features into the intersection (top 25). Variation (3) degraded performance (accuracy 67.7%, AUC 78.3%), indicating that the union introduced more noise than signal. The LASSO approach selected a 3-protein panel (DERM, IgD, eIF-4H) with 40% fewer proteins than baseline and reasonable performance (accuracy 67.7%, AUC 75.8%)—higher specificity but lower sensitivity—illustrating the trade-off between simplicity and accuracy.</p>
+<p>The baseline 5-protein intersection delivers the best balance of sensitivity and specificity under the original design, while LASSO demonstrates that substantially simpler panels are feasible with modest loss of accuracy. Smaller panels may suit screening or resource-constrained contexts; for diagnosis, the baseline-sized panel is preferred. Future work should evaluate elastic net regularization and intermediate panel sizes on external cohorts.</p>
 </section>
 
 </main>
